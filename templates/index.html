@@ -1,0 +1,756 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PDF Audiobook</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      min-height: 100vh;
+      background: #111827;
+      color: #f3f4f6;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      padding: 2rem 1rem;
+    }
+
+    .screen { width: 100%; max-width: 560px; display: none; flex-direction: column; gap: 1.25rem; }
+    .screen.active { display: flex; }
+
+    h1 { font-size: 2rem; font-weight: 700; color: #a78bfa; }
+    h2 { font-size: 1.3rem; font-weight: 700; color: #e5e7eb; }
+    .sub { color: #9ca3af; font-size: 0.9rem; }
+
+    /* ── Fields ── */
+    .field { display: flex; flex-direction: column; gap: 0.4rem; }
+    .field label { font-size: 0.8rem; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.05em; }
+    .field input, .field select {
+      padding: 0.75rem 1rem;
+      background: #1f2937;
+      border: 1px solid #374151;
+      border-radius: 10px;
+      color: #f3f4f6;
+      font-size: 1rem;
+      outline: none;
+      transition: border-color 0.15s;
+      width: 100%;
+    }
+    .field input:focus, .field select:focus { border-color: #7c3aed; }
+    .field input[type="file"] { padding: 0.6rem 1rem; cursor: pointer; }
+    .field input[type="file"]::file-selector-button {
+      background: #374151; border: none; color: #f3f4f6;
+      padding: 0.35rem 0.75rem; border-radius: 6px; cursor: pointer; margin-right: 0.75rem;
+    }
+
+    /* ── Buttons ── */
+    .btn {
+      padding: 0.75rem 1.25rem;
+      border: none; border-radius: 10px;
+      font-size: 0.95rem; font-weight: 600;
+      cursor: pointer; transition: background 0.15s, opacity 0.15s;
+    }
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .btn-primary { background: #7c3aed; color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: #6d28d9; }
+    .btn-secondary { background: #1f2937; color: #d1d5db; border: 1px solid #374151; }
+    .btn-secondary:hover:not(:disabled) { background: #374151; }
+    .btn-green { background: #065f46; color: #d1fae5; border: 1px solid #047857; }
+    .btn-green:hover:not(:disabled) { background: #047857; }
+    .btn-danger { background: #7f1d1d; color: #fca5a5; border: 1px solid #991b1b; font-size: 0.8rem; padding: 0.4rem 0.75rem; }
+    .btn-danger:hover:not(:disabled) { background: #991b1b; }
+    .btn-sm { padding: 0.4rem 0.8rem; font-size: 0.85rem; border-radius: 7px; }
+
+    /* ── Error / info banners ── */
+    .banner {
+      padding: 0.75rem 1rem; border-radius: 8px; font-size: 0.9rem;
+    }
+    .banner-error { background: #450a0a; border: 1px solid #991b1b; color: #fca5a5; }
+    .banner-info  { background: #1e3a5f; border: 1px solid #1e40af; color: #93c5fd; }
+    .hidden { display: none !important; }
+
+    /* ── Library ── */
+    .library-header { display: flex; align-items: center; justify-content: space-between; }
+    .book-card {
+      background: #1f2937; border: 1px solid #374151; border-radius: 12px;
+      padding: 1rem 1.25rem; display: flex; align-items: center; gap: 1rem;
+    }
+    .book-card-info { flex: 1; min-width: 0; }
+    .book-card-title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .book-card-sub { font-size: 0.8rem; color: #6b7280; margin-top: 0.2rem; }
+    .book-card-actions { display: flex; gap: 0.5rem; flex-shrink: 0; }
+    .empty-state { text-align: center; color: #4b5563; padding: 2rem 0; font-size: 0.95rem; }
+
+    /* ── Chapter selection ── */
+    .chapters-list {
+      background: #1f2937; border: 1px solid #374151; border-radius: 12px;
+      max-height: 340px; overflow-y: auto;
+    }
+    .chapter-row {
+      display: flex; align-items: center; gap: 0.75rem;
+      padding: 0.65rem 1rem; border-bottom: 1px solid #374151; cursor: pointer;
+    }
+    .chapter-row:last-child { border-bottom: none; }
+    .chapter-row:hover { background: #263044; }
+    .chapter-row input[type="checkbox"] { accent-color: #7c3aed; width: 16px; height: 16px; flex-shrink: 0; cursor: pointer; }
+    .chapter-title { flex: 1; font-size: 0.9rem; }
+    .chapter-level-2 .chapter-title { padding-left: 1rem; color: #9ca3af; font-size: 0.85rem; }
+    .chapter-level-3 .chapter-title { padding-left: 2rem; color: #6b7280; font-size: 0.8rem; }
+    .chapter-badge {
+      font-size: 0.7rem; padding: 0.15rem 0.5rem; border-radius: 99px;
+      background: #374151; color: #9ca3af; flex-shrink: 0;
+    }
+    .chapter-badge.skip { background: #4b1e1e; color: #f87171; }
+    .select-row { display: flex; gap: 0.5rem; }
+
+    /* ── Player ── */
+    .book-header { text-align: center; }
+    .book-header h2 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .chapter-now { font-size: 0.8rem; color: #7c3aed; margin-top: 0.2rem; }
+
+    .progress-track {
+      height: 6px; background: #1f2937; border-radius: 99px; cursor: pointer; position: relative;
+    }
+    .progress-fill { height: 100%; background: #7c3aed; border-radius: 99px; transition: width 0.3s; }
+
+    .wave-wrap { display: flex; align-items: center; justify-content: center; gap: 4px; height: 32px; }
+    .wave-bar { width: 4px; background: #7c3aed; border-radius: 2px; animation: wave 1s ease-in-out infinite; }
+    .wave-bar:nth-child(1) { animation-delay: 0s; }
+    .wave-bar:nth-child(2) { animation-delay: 0.1s; }
+    .wave-bar:nth-child(3) { animation-delay: 0.2s; }
+    .wave-bar:nth-child(4) { animation-delay: 0.3s; }
+    .wave-bar:nth-child(5) { animation-delay: 0.4s; }
+    @keyframes wave { 0%,100%{height:8px} 50%{height:28px} }
+    .wave-wrap.paused .wave-bar { animation-play-state: paused; }
+
+    .controls { display: flex; align-items: center; justify-content: center; gap: 1.25rem; }
+    .ctrl-btn {
+      background: #1f2937; border: none; border-radius: 50%; color: #d1d5db;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      transition: background 0.15s, color 0.15s;
+    }
+    .ctrl-btn:hover { background: #374151; color: #fff; }
+    .ctrl-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+    .ctrl-btn.sm { width: 44px; height: 44px; font-size: 1.1rem; }
+    .ctrl-btn.lg { width: 64px; height: 64px; font-size: 1.6rem; background: #7c3aed; color: #fff; }
+    .ctrl-btn.lg:hover { background: #6d28d9; }
+
+    .options-row { display: flex; gap: 1rem; align-items: center; justify-content: center; flex-wrap: wrap; }
+    .option-group { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: #9ca3af; }
+    .option-group select, .option-group input[type="range"] {
+      background: #1f2937; border: 1px solid #374151; border-radius: 6px;
+      color: #f3f4f6; padding: 0.3rem 0.5rem; font-size: 0.85rem; outline: none;
+    }
+    .option-group input[type="range"] { width: 90px; accent-color: #7c3aed; padding: 0; }
+    #speed-label { min-width: 32px; text-align: right; color: #e5e7eb; }
+
+    .text-box {
+      background: #1f2937; border: 1px solid #374151; border-radius: 12px;
+      padding: 1.25rem 1.5rem; font-size: 0.95rem; line-height: 1.75; color: #d1d5db;
+      max-height: 200px; overflow-y: auto;
+    }
+    .text-box.loading {
+      display: flex; align-items: center; justify-content: center;
+      min-height: 80px; color: #6b7280; font-style: italic;
+    }
+
+    .player-footer { display: flex; flex-direction: column; gap: 0.6rem; }
+    #download-progress { text-align: center; font-size: 0.85rem; color: #6b7280; }
+    .back-link { background: none; border: none; color: #6b7280; cursor: pointer; font-size: 0.85rem; text-align: center; text-decoration: underline; }
+    .back-link:hover { color: #9ca3af; }
+  </style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════════════
+     SCREEN 1 — Setup
+═══════════════════════════════════════════════════════ -->
+<div id="screen-setup" class="screen active">
+  <div>
+    <h1>PDF Audiobook</h1>
+    <p class="sub">Turn any PDF book into audio with OpenAI TTS.</p>
+  </div>
+
+  <div class="field">
+    <label>OpenAI API Key</label>
+    <input type="password" id="api-key" placeholder="sk-..." autocomplete="off">
+  </div>
+
+  <div class="field">
+    <label>Voice</label>
+    <select id="voice-setup">
+      <option value="nova">Nova — warm, female</option>
+      <option value="alloy">Alloy — neutral</option>
+      <option value="echo">Echo — male</option>
+      <option value="fable">Fable — storyteller</option>
+      <option value="onyx">Onyx — deep, male</option>
+      <option value="shimmer">Shimmer — soft, female</option>
+    </select>
+  </div>
+
+  <div class="field">
+    <label>PDF File</label>
+    <input type="file" id="pdf-input" accept=".pdf">
+  </div>
+
+  <button class="btn btn-primary" id="upload-btn">Upload &amp; Select Chapters</button>
+  <div id="setup-error" class="banner banner-error hidden"></div>
+
+  <div style="display:flex;align-items:center;gap:0.75rem">
+    <hr style="flex:1;border-color:#374151">
+    <span class="sub">or</span>
+    <hr style="flex:1;border-color:#374151">
+  </div>
+
+  <button class="btn btn-secondary" id="library-btn">Open Library</button>
+</div>
+
+<!-- ══════════════════════════════════════════════════════
+     SCREEN 2 — Chapter Selection
+═══════════════════════════════════════════════════════ -->
+<div id="screen-chapters" class="screen">
+  <div>
+    <h2 id="ch-book-title">Book Title</h2>
+    <p class="sub" id="ch-book-sub"></p>
+  </div>
+
+  <div id="ch-info" class="banner banner-info hidden"></div>
+
+  <div class="select-row">
+    <button class="btn btn-secondary btn-sm" id="ch-select-all">Select all</button>
+    <button class="btn btn-secondary btn-sm" id="ch-deselect-skip">Deselect skippable</button>
+    <button class="btn btn-secondary btn-sm" id="ch-deselect-all">Deselect all</button>
+  </div>
+
+  <div class="chapters-list" id="chapters-list"></div>
+
+  <button class="btn btn-primary" id="ch-start-btn">Start Converting Selected</button>
+  <div id="ch-error" class="banner banner-error hidden"></div>
+  <button class="back-link" id="ch-back-btn">&#8592; Back</button>
+</div>
+
+<!-- ══════════════════════════════════════════════════════
+     SCREEN 3 — Player
+═══════════════════════════════════════════════════════ -->
+<div id="screen-player" class="screen">
+  <div class="book-header">
+    <h2 id="player-title">Book</h2>
+    <div class="chapter-now" id="chapter-now"></div>
+    <p class="sub" id="chunk-info">Part 1 of 1</p>
+  </div>
+
+  <div class="wave-wrap paused" id="wave">
+    <div class="wave-bar"></div><div class="wave-bar"></div>
+    <div class="wave-bar"></div><div class="wave-bar"></div>
+    <div class="wave-bar"></div>
+  </div>
+
+  <div class="progress-track">
+    <div class="progress-fill" id="progress-fill" style="width:0%"></div>
+  </div>
+
+  <div class="controls">
+    <button class="ctrl-btn sm" id="prev-btn" disabled>&#9664;&#9664;</button>
+    <button class="ctrl-btn lg" id="play-btn">&#9654;</button>
+    <button class="ctrl-btn sm" id="next-btn" disabled>&#9654;&#9654;</button>
+  </div>
+
+  <div class="options-row">
+    <div class="option-group">
+      <span>Speed</span>
+      <input type="range" id="speed-range" min="0.5" max="2" step="0.25" value="1">
+      <span id="speed-label">1×</span>
+    </div>
+    <div class="option-group">
+      <span>Voice</span>
+      <select id="voice-player">
+        <option value="nova">Nova</option>
+        <option value="alloy">Alloy</option>
+        <option value="echo">Echo</option>
+        <option value="fable">Fable</option>
+        <option value="onyx">Onyx</option>
+        <option value="shimmer">Shimmer</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="text-box loading" id="text-display">Loading…</div>
+
+  <div class="player-footer">
+    <button class="btn btn-green" id="download-btn">&#11015; Download Full MP3</button>
+    <div id="download-progress" class="hidden"></div>
+    <div id="player-error" class="banner banner-error hidden"></div>
+    <button class="back-link" id="player-back-btn">&#8592; Load a different book</button>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════
+     SCREEN 4 — Library
+═══════════════════════════════════════════════════════ -->
+<div id="screen-library" class="screen">
+  <div class="library-header">
+    <h2>Library</h2>
+    <button class="back-link" id="lib-back-btn">&#8592; Back</button>
+  </div>
+  <div id="library-list"></div>
+</div>
+
+<script>
+// ── State ─────────────────────────────────────────────────────────────────
+const S = {
+  apiKey: '',
+  voice: 'nova',
+  bookId: '',
+  bookTitle: '',
+  chunks: [],       // [{chapter, text}, ...]
+  index: 0,
+  audio: null,
+  cache: {},        // index -> blob URL (in-memory, lost on reload — disk is the real cache)
+  fetching: new Set(),
+  isPlaying: false,
+};
+
+// ── Screens ───────────────────────────────────────────────────────────────
+const screens = ['setup','chapters','player','library'];
+function showScreen(name) {
+  screens.forEach(s => {
+    const el = document.getElementById('screen-' + s);
+    el.classList.toggle('active', s === name);
+  });
+}
+
+// ── Shortcuts ─────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+function showErr(id, msg) { const e=$(id); e.textContent=msg; e.classList.remove('hidden'); }
+function hideEl(id) { $(id).classList.add('hidden'); }
+
+// ══════════════════════════════════════════════════════
+// SCREEN 1 — Setup
+// ══════════════════════════════════════════════════════
+$('upload-btn').addEventListener('click', async () => {
+  const apiKey  = $('api-key').value.trim();
+  const pdfFile = $('pdf-input').files[0];
+  if (!apiKey)  return showErr('setup-error', 'Please enter your OpenAI API key.');
+  if (!pdfFile) return showErr('setup-error', 'Please select a PDF file.');
+  hideEl('setup-error');
+
+  S.apiKey = apiKey;
+  S.voice  = $('voice-setup').value;
+  $('upload-btn').disabled = true;
+  $('upload-btn').textContent = 'Uploading…';
+
+  const form = new FormData();
+  form.append('pdf', pdfFile);
+
+  try {
+    const res  = await fetch('/upload', { method: 'POST', body: form });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    loadChapterScreen(data);
+  } catch (e) {
+    showErr('setup-error', e.message);
+  } finally {
+    $('upload-btn').disabled = false;
+    $('upload-btn').textContent = 'Upload & Select Chapters';
+  }
+});
+
+$('library-btn').addEventListener('click', loadLibrary);
+
+// ══════════════════════════════════════════════════════
+// SCREEN 2 — Chapter Selection
+// ══════════════════════════════════════════════════════
+let uploadedData = null;
+
+function loadChapterScreen(data) {
+  uploadedData = data;
+  S.bookId    = data.book_id;
+  S.bookTitle = data.title;
+
+  $('ch-book-title').textContent = data.title;
+  $('ch-book-sub').textContent   = `${data.pages} pages · ${data.chapters.length} sections`;
+
+  if (data.chapters.length === 1 && data.chapters[0].title === 'Full Book') {
+    $('ch-info').textContent = 'This PDF has no chapter bookmarks — the whole book will be converted as one section.';
+    $('ch-info').classList.remove('hidden');
+  } else {
+    hideEl('ch-info');
+  }
+
+  renderChapters(data.chapters);
+  showScreen('chapters');
+}
+
+function renderChapters(chapters) {
+  const list = $('chapters-list');
+  list.innerHTML = '';
+  chapters.forEach(ch => {
+    const row = document.createElement('div');
+    row.className = `chapter-row chapter-level-${Math.min(ch.level, 3)}`;
+    row.dataset.id = ch.id;
+
+    const cb = document.createElement('input');
+    cb.type    = 'checkbox';
+    cb.checked = !ch.skip;
+    cb.id      = 'ch-' + ch.id;
+
+    const label = document.createElement('label');
+    label.htmlFor   = cb.id;
+    label.className = 'chapter-title';
+    label.textContent = ch.title;
+
+    row.appendChild(cb);
+    row.appendChild(label);
+
+    if (ch.skip) {
+      const badge = document.createElement('span');
+      badge.className   = 'chapter-badge skip';
+      badge.textContent = 'skip';
+      row.appendChild(badge);
+    }
+
+    row.addEventListener('click', e => {
+      if (e.target !== cb) cb.checked = !cb.checked;
+    });
+
+    list.appendChild(row);
+  });
+}
+
+$('ch-select-all').addEventListener('click', () =>
+  $('chapters-list').querySelectorAll('input[type=checkbox]').forEach(cb => cb.checked = true));
+
+$('ch-deselect-all').addEventListener('click', () =>
+  $('chapters-list').querySelectorAll('input[type=checkbox]').forEach(cb => cb.checked = false));
+
+$('ch-deselect-skip').addEventListener('click', () => {
+  uploadedData.chapters.forEach(ch => {
+    if (ch.skip) {
+      const cb = document.getElementById('ch-' + ch.id);
+      if (cb) cb.checked = false;
+    }
+  });
+});
+
+$('ch-start-btn').addEventListener('click', async () => {
+  const selected = [...$('chapters-list').querySelectorAll('input[type=checkbox]:checked')]
+    .map(cb => parseInt(cb.closest('.chapter-row').dataset.id));
+
+  if (selected.length === 0) return showErr('ch-error', 'Please select at least one chapter.');
+  hideEl('ch-error');
+
+  $('ch-start-btn').disabled = true;
+  $('ch-start-btn').textContent = 'Extracting text…';
+
+  try {
+    const res  = await fetch('/extract', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ book_id: S.bookId, chapter_ids: selected }),
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    S.chunks   = data.chunks;
+    S.index    = 0;
+    S.cache    = {};
+    S.fetching = new Set();
+    S.isPlaying = false;
+    S.voice    = $('voice-setup').value;
+    $('voice-player').value = S.voice;
+
+    $('player-title').textContent = S.bookTitle;
+    showScreen('player');
+    updatePlayerUI(true);
+    await playChunk(0);
+  } catch (e) {
+    showErr('ch-error', e.message);
+  } finally {
+    $('ch-start-btn').disabled = false;
+    $('ch-start-btn').textContent = 'Start Converting Selected';
+  }
+});
+
+$('ch-back-btn').addEventListener('click', () => showScreen('setup'));
+
+// ══════════════════════════════════════════════════════
+// SCREEN 3 — Player
+// ══════════════════════════════════════════════════════
+async function playChunk(index) {
+  if (index < 0 || index >= S.chunks.length) return;
+  S.index = index;
+  updatePlayerUI(true);
+
+  let url;
+  try {
+    url = await getAudio(index);
+  } catch (e) {
+    S.isPlaying = false;
+    updatePlayerUI(false);
+    showErr('player-error', 'Error: ' + e.message);
+    return;
+  }
+
+  if (S.index !== index) return;
+  if (S.audio) { S.audio.pause(); S.audio.src = ''; }
+
+  S.audio = new Audio(url);
+  S.audio.playbackRate = parseFloat($('speed-range').value);
+  S.audio.onended = () => {
+    if (S.index < S.chunks.length - 1) playChunk(S.index + 1);
+    else { S.isPlaying = false; updatePlayerUI(false); }
+  };
+  S.audio.onerror = () => showErr('player-error', 'Playback error. Try again.');
+
+  S.isPlaying = true;
+  S.audio.play();
+  updatePlayerUI(false);
+  prefetch(index + 1);
+  prefetch(index + 2);
+}
+
+async function getAudio(index) {
+  if (S.cache[index]) return S.cache[index];
+  if (S.fetching.has(index)) {
+    return new Promise((resolve, reject) => {
+      const iv = setInterval(() => {
+        if (S.cache[index])          { clearInterval(iv); resolve(S.cache[index]); }
+        else if (!S.fetching.has(index)) { clearInterval(iv); reject(new Error('Audio fetch failed')); }
+      }, 200);
+    });
+  }
+
+  S.fetching.add(index);
+  try {
+    const res = await fetch('/tts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        api_key: S.apiKey,
+        text: S.chunks[index].text,
+        voice: S.voice,
+        book_id: S.bookId,
+        chunk_index: index,
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Unknown error' }));
+      throw new Error(err.error || 'TTS request failed');
+    }
+    const blob = await res.blob();
+    const url  = URL.createObjectURL(blob);
+    S.cache[index] = url;
+    return url;
+  } catch (e) {
+    S.fetching.delete(index);
+    throw e;
+  }
+}
+
+function prefetch(index) {
+  if (index >= 0 && index < S.chunks.length && !S.cache[index] && !S.fetching.has(index))
+    getAudio(index).catch(() => {});
+}
+
+function updatePlayerUI(loading) {
+  const total = S.chunks.length;
+  const i     = S.index;
+
+  $('chunk-info').textContent  = `Part ${i + 1} of ${total}`;
+  $('chapter-now').textContent = S.chunks[i]?.chapter || '';
+  const pct = total > 1 ? (i / (total - 1)) * 100 : 0;
+  $('progress-fill').style.width = pct + '%';
+
+  $('prev-btn').disabled = i === 0;
+  $('next-btn').disabled = i >= total - 1;
+
+  const wave = $('wave');
+  if (loading) {
+    $('play-btn').innerHTML = '&#8987;';
+    $('play-btn').disabled  = true;
+    wave.classList.add('paused');
+    const td = $('text-display');
+    td.className = 'text-box loading';
+    td.textContent = 'Converting to audio…';
+  } else {
+    $('play-btn').disabled  = false;
+    $('play-btn').innerHTML = S.isPlaying ? '&#9646;&#9646;' : '&#9654;';
+    wave.classList.toggle('paused', !S.isPlaying);
+    const td = $('text-display');
+    td.className = 'text-box';
+    td.textContent = S.chunks[i]?.text || '';
+  }
+  hideEl('player-error');
+}
+
+$('play-btn').addEventListener('click', () => {
+  if (!S.audio) return;
+  if (S.isPlaying) { S.audio.pause(); S.isPlaying = false; }
+  else             { S.audio.play();  S.isPlaying = true;  }
+  updatePlayerUI(false);
+});
+
+$('prev-btn').addEventListener('click', () => { if (S.index > 0) playChunk(S.index - 1); });
+$('next-btn').addEventListener('click', () => { if (S.index < S.chunks.length - 1) playChunk(S.index + 1); });
+
+$('speed-range').addEventListener('input', () => {
+  const v = parseFloat($('speed-range').value);
+  $('speed-label').textContent = v + '×';
+  if (S.audio) S.audio.playbackRate = v;
+});
+
+$('voice-player').addEventListener('change', () => {
+  S.voice = $('voice-player').value;
+  Object.values(S.cache).forEach(u => URL.revokeObjectURL(u));
+  S.cache = {};
+  S.fetching.clear();
+  if (S.isPlaying) playChunk(S.index);
+});
+
+// Download
+$('download-btn').addEventListener('click', async () => {
+  const btn  = $('download-btn');
+  const prog = $('download-progress');
+  btn.disabled = true;
+  prog.classList.remove('hidden');
+  hideEl('player-error');
+
+  const total = S.chunks.length;
+  const blobs = [];
+
+  for (let i = 0; i < total; i++) {
+    const cached = S.cache[i] ? ' (cached)' : '';
+    prog.textContent = `Converting part ${i + 1} of ${total}${cached}…`;
+    try {
+      const url  = await getAudio(i);
+      const resp = await fetch(url);
+      blobs.push(await resp.blob());
+    } catch (e) {
+      showErr('player-error', `Download failed at part ${i + 1}: ${e.message}`);
+      btn.disabled = false;
+      prog.classList.add('hidden');
+      return;
+    }
+  }
+
+  prog.textContent = 'Building MP3…';
+  const combined = new Blob(blobs, { type: 'audio/mpeg' });
+  const dlUrl    = URL.createObjectURL(combined);
+  const a        = document.createElement('a');
+  a.href         = dlUrl;
+  a.download     = S.bookTitle + '.mp3';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(dlUrl);
+
+  prog.textContent = 'Done!';
+  setTimeout(() => prog.classList.add('hidden'), 2000);
+  btn.disabled = false;
+});
+
+$('player-back-btn').addEventListener('click', () => {
+  if (S.audio) { S.audio.pause(); S.audio = null; }
+  S.isPlaying = false;
+  showScreen('setup');
+});
+
+// ══════════════════════════════════════════════════════
+// SCREEN 4 — Library
+// ══════════════════════════════════════════════════════
+async function loadLibrary() {
+  showScreen('library');
+  const list = $('library-list');
+  list.innerHTML = '<p class="sub" style="text-align:center;padding:1rem">Loading…</p>';
+
+  try {
+    const res  = await fetch('/library');
+    const data = await res.json();
+
+    if (!data.books.length) {
+      list.innerHTML = '<p class="empty-state">No books converted yet.<br>Upload a PDF to get started.</p>';
+      return;
+    }
+
+    list.innerHTML = '';
+    data.books.forEach(book => {
+      const card = document.createElement('div');
+      card.className = 'book-card';
+
+      const info = document.createElement('div');
+      info.className = 'book-card-info';
+
+      const title = document.createElement('div');
+      title.className   = 'book-card-title';
+      title.textContent = book.title;
+
+      const sub = document.createElement('div');
+      sub.className   = 'book-card-sub';
+      sub.textContent = book.total
+        ? `${book.converted} of ${book.total} parts converted`
+        : `${book.converted} parts stored`;
+
+      info.appendChild(title);
+      info.appendChild(sub);
+
+      const actions = document.createElement('div');
+      actions.className = 'book-card-actions';
+
+      if (book.converted > 0) {
+        const dlBtn = document.createElement('button');
+        dlBtn.className   = 'btn btn-green btn-sm';
+        dlBtn.textContent = '↓ MP3';
+        dlBtn.addEventListener('click', () => downloadFromLibrary(book.book_id, book.title));
+        actions.appendChild(dlBtn);
+      }
+
+      const delBtn = document.createElement('button');
+      delBtn.className   = 'btn btn-danger btn-sm';
+      delBtn.textContent = 'Delete';
+      delBtn.addEventListener('click', async () => {
+        if (!confirm(`Delete "${book.title}" from library?`)) return;
+        await fetch('/library/' + book.book_id, { method: 'DELETE' });
+        loadLibrary();
+      });
+      actions.appendChild(delBtn);
+
+      card.appendChild(info);
+      card.appendChild(actions);
+      list.appendChild(card);
+    });
+  } catch (e) {
+    list.innerHTML = `<p class="banner banner-error">${e.message}</p>`;
+  }
+}
+
+async function downloadFromLibrary(bookId, title) {
+  const apiKey = $('api-key').value.trim();
+  const voice  = $('voice-setup').value;
+  const res = await fetch('/download-full', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ book_id: bookId, voice }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    alert(err.error || 'Download failed');
+    return;
+  }
+  const blob = await res.blob();
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = title + '.mp3';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+$('lib-back-btn').addEventListener('click', () => showScreen('setup'));
+</script>
+</body>
+</html>
