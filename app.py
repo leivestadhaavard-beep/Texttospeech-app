@@ -107,6 +107,7 @@ def upload():
                 'skip': False,
             })
 
+        total_pages = len(doc)
         doc.close()
 
         # Save PDF bytes to cache for later extraction
@@ -116,11 +117,11 @@ def upload():
             pdf_path.write_bytes(pdf_bytes)
 
         # Save metadata
-        meta = {'title': title, 'chapters': chapters, 'pages': len(doc)}
-        (book_dir / 'meta.json').write_text(json.dumps(meta, ensure_ascii=False))
+        meta = {'title': title, 'chapters': chapters, 'pages': total_pages}
+        (book_dir / 'meta.json').write_text(json.dumps(meta, ensure_ascii=False), encoding='utf-8')
 
         return jsonify({'book_id': book_id, 'title': title,
-                        'chapters': chapters, 'pages': len(doc)})
+                        'chapters': chapters, 'pages': total_pages})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -128,16 +129,22 @@ def upload():
 @app.route('/extract', methods=['POST'])
 def extract():
     """Extract and chunk text for selected chapters of a book."""
-    data = request.json
-    book_id = data.get('book_id')
-    selected_ids = set(data.get('chapter_ids', []))
-
-    book_dir = book_cache_dir(book_id)
-    meta = json.loads((book_dir / 'meta.json').read_text())
-    chapters = meta['chapters']
-    pdf_bytes = (book_dir / 'source.pdf').read_bytes()
-
     try:
+        data = request.json
+        book_id = data.get('book_id')
+        selected_ids = set(data.get('chapter_ids', []))
+
+        book_dir = book_cache_dir(book_id)
+        meta_path = book_dir / 'meta.json'
+        pdf_path  = book_dir / 'source.pdf'
+
+        if not meta_path.exists() or not pdf_path.exists():
+            return jsonify({'error': 'Book data missing — please re-upload the PDF.'}), 400
+
+        meta      = json.loads(meta_path.read_text(encoding='utf-8'))
+        chapters  = meta['chapters']
+        pdf_bytes = pdf_path.read_bytes()
+
         doc = fitz.open(stream=pdf_bytes, filetype='pdf')
         chunks = []
         for ch in chapters:
@@ -150,9 +157,8 @@ def extract():
                 chunks.append({'chapter': ch['title'], 'text': c})
         doc.close()
 
-        # Save chunks list to disk
         (book_dir / 'chunks.json').write_text(
-            json.dumps(chunks, ensure_ascii=False))
+            json.dumps(chunks, ensure_ascii=False), encoding='utf-8')
 
         return jsonify({'chunks': chunks, 'total': len(chunks)})
     except Exception as e:
@@ -205,7 +211,7 @@ def download_full():
     voice = data.get('voice', 'nova')
 
     book_dir = book_cache_dir(book_id)
-    meta = json.loads((book_dir / 'meta.json').read_text())
+    meta = json.loads((book_dir / 'meta.json').read_text(encoding='utf-8'))
 
     chunk_files = sorted(book_dir.glob(f'chunk_*_{voice}.mp3'))
     if not chunk_files:
@@ -231,7 +237,7 @@ def library():
             continue
         meta = json.loads(meta_path.read_text())
         mp3_files = list(book_dir.glob('chunk_*.mp3'))
-        total_chunks = len(json.loads((book_dir / 'chunks.json').read_text())) \
+        total_chunks = len(json.loads((book_dir / 'chunks.json').read_text(encoding='utf-8'))) \
             if (book_dir / 'chunks.json').exists() else 0
         books.append({
             'book_id': book_dir.name,
